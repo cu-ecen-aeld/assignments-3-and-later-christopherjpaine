@@ -1,5 +1,38 @@
 #include "systemcalls.h"
 
+#include <sys/types.h>
+#include <unistd.h> 
+#include <sys/wait.h> 
+#define _XOPEN_SOURCE
+#include <stdlib.h> 
+#include <sys/stat.h>
+#include <fcntl.h> 
+
+static bool wait_for_child (pid_t pid){
+
+    int status;
+
+    /* Wait for specified child */
+    if (waitpid (pid, &status, 0) == -1) {
+        perror("wait");
+        return false;
+
+    } else {
+        /* Determine success or failure from exit status */
+        if (WIFEXITED (status)) {
+            if (WEXITSTATUS (status) > 0) {
+                return false;
+            } else {
+                return true;
+            }
+        }
+        else { 
+            // Consider un-exited processes a failure.
+            return false;
+        }
+    }
+}
+
 /**
  * @param cmd the command to execute with system()
  * @return true if the command in @param cmd was executed
@@ -17,7 +50,13 @@ bool do_system(const char *cmd)
  *   or false() if it returned a failure
 */
 
-    return true;
+    int status  = system(cmd);
+
+    if (!status) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 /**
@@ -45,23 +84,28 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
-/*
- * TODO:
- *   Execute a system command by calling fork, execv(),
- *   and wait instead of system (see LSP page 161).
- *   Use the command[0] as the full path to the command to execute
- *   (first argument to execv), and use the remaining arguments
- *   as second argument to the execv() command.
- *
-*/
+    bool retval;
+
+    /* Fork, Exec, Wait */
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        retval = false;
+
+    } else if (!pid) {
+        /* Run command in child */
+        execv (command[0], command);
+        exit(EXIT_FAILURE);
+
+    } else {
+        retval = wait_for_child(pid);
+    }
 
     va_end(args);
 
-    return true;
+    return retval;
+
 }
 
 /**
@@ -93,7 +137,38 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *
 */
 
+    bool retval;
+
+    /* Open file */
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if (fd < 0) { 
+        // open failure
+        va_end(args);
+        return false;
+    }
+
+    /* Fork, Exec, Wait */
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        retval = false;
+        
+    } else if (!pid) {
+        /* Replace stdin with outputfile, then exec the command */
+        if (dup2(fd, 1) < 0) { 
+            perror("dup");
+            exit(EXIT_FAILURE);
+        }
+        close(fd);
+        execv (command[0], command);
+        exit(EXIT_FAILURE); // always a failure if exec* returns
+
+    } else {
+        retval = wait_for_child(pid);
+    }
+
     va_end(args);
 
-    return true;
+    return retval;
+
 }
