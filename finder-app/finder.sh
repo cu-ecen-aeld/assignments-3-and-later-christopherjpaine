@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /bin/sh
 
 # Verify usage - two command line args.
 if [ $# -ne 2 ]; then
